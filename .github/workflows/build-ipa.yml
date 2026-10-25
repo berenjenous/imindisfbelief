@@ -1,30 +1,49 @@
-name: Webrune
-options:
-  bundleIdPrefix: com.example.webrune
-  deploymentTarget:
-    iOS: "16.4"
-targets:
-  Webrune:
-    type: application
-    platform: iOS
-    sources: [App]
-    info:
-      path: App/Info.plist
-      properties:
-        CFBundleDisplayName: Webrune
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "2"
-        UILaunchScreen: {}
-        UIRequiresFullScreen: true
-        UIStatusBarHidden: true
-        UIViewControllerBasedStatusBarAppearance: false
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.webrune
-        TARGETED_DEVICE_FAMILY: "1"
-        SWIFT_VERSION: "5.0"
-        CODE_SIGNING_ALLOWED: "NO"
-        GENERATE_INFOPLIST_FILE: "NO"
+name: Build unsigned IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find project folder
+        run: |
+          P=$(find . -name project.yml -not -path "./build/*" | head -1)
+          if [ -z "$P" ]; then echo "project.yml NO está en el repo"; ls -R; exit 1; fi
+          echo "PROJ_DIR=$(dirname "$P")" >> $GITHUB_ENV
+          echo "Proyecto en: $(dirname "$P")"; ls -R "$(dirname "$P")"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: cd "$PROJ_DIR" && xcodegen generate
+
+      - name: Build (no signing)
+        run: |
+          cd "$PROJ_DIR"
+          xcodebuild -project Webrune.xcodeproj \
+            -scheme Webrune \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          cd "$PROJ_DIR"
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Webrune.app Payload/
+          zip -qr "$GITHUB_WORKSPACE/Webrune.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Webrune-ipa
+          path: Webrune.ipa
+          if-no-files-found: error
